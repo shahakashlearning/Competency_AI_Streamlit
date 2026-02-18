@@ -1,93 +1,158 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
 from langchain_groq import ChatGroq
 
-# ===============================
-# PAGE CONFIG
-# ===============================
-st.set_page_config(page_title="SkillMatrix AI", layout="wide")
+# ============================
+# CONFIG
+# ============================
 
-st.title("🚀 SkillMatrix AI – Competency Analytics Platform")
+st.set_page_config(page_title="AI Competency Platform", layout="wide")
 
-# ===============================
-# LOAD GROQ KEY
-# ===============================
-groq_api_key = st.secrets["GROQ_API_KEY"]
+st.title("🚀 AI Competency Intelligence Platform")
+
+# ============================
+# LOAD GROQ FROM SECRETS
+# ============================
+
+if "GROQ_API_KEY" not in st.secrets:
+    st.error("GROQ_API_KEY not found in Streamlit Secrets")
+    st.stop()
 
 llm = ChatGroq(
     model="llama3-8b-8192",
-    api_key=groq_api_key
+    api_key=st.secrets["GROQ_API_KEY"]
 )
 
-# ===============================
-# FILE UPLOAD
-# ===============================
-uploaded_file = st.file_uploader(
-    "Upload Competency Sheet",
-    type=["xlsx", "xlsm"]
+# ============================
+# SIDEBAR NAVIGATION
+# ============================
+
+menu = st.sidebar.radio(
+    "Navigation",
+    ["Self Competency Check",
+     "Team Competency Check",
+     "🤖 AI Chat Assistant (RAG)"]
 )
 
-if uploaded_file:
+# =========================================================
+# SELF CHECK (Prototype)
+# =========================================================
 
-    df = pd.read_excel(uploaded_file, engine="openpyxl", header=6)
-    df.columns = df.columns.str.strip()
+if menu == "Self Competency Check":
 
-    area_col = "Area"
-    target_col = "Target"
-    target_index = df.columns.get_loc("Target")
-    current_col = df.columns[target_index + 1]
+    st.header("👤 Self Competency Check")
 
-    st.success(f"Employee Detected: {current_col}")
+    uploaded_file = st.file_uploader("Upload Individual Competency Sheet")
 
-    # Convert numeric
-    df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
-    df[current_col] = pd.to_numeric(df[current_col], errors="coerce")
+    if uploaded_file:
+        df = pd.read_excel(uploaded_file, header=6)
+        st.success("File Loaded Successfully")
+        st.dataframe(df.head())
 
-    # ===============================
-    # RADAR CHART
-    # ===============================
-    st.subheader("Competency Radar Dashboard")
+        st.info("Radar Dashboard + Gap Analysis can be added here (already implemented in desktop version).")
 
-    grouped = df.groupby(area_col).mean(numeric_only=True).reset_index()
+# =========================================================
+# TEAM CHECK
+# =========================================================
 
-    areas = grouped[area_col].tolist()
-    target_values = grouped[target_col].tolist()
-    current_values = grouped[current_col].tolist()
+elif menu == "Team Competency Check":
 
-    radar_df = pd.DataFrame({
-        "Area": areas,
-        "Target": target_values,
-        "Current": current_values
-    })
+    st.header("👥 Team Competency Check")
 
-    st.dataframe(radar_df)
+    uploaded_file = st.file_uploader("Upload Team Competency Sheet")
 
-    # ===============================
-    # GAP ANALYSIS
-    # ===============================
-    st.subheader("Skill Gap Analysis")
+    if uploaded_file:
+        team_df = pd.read_excel(uploaded_file, header=6)
+        team_df.columns = team_df.columns.str.strip()
 
-    gap_df = df[df[current_col] < df[target_col]]
+        st.success("Team File Loaded")
 
-    for _, row in gap_df.iterrows():
+        # Identify employee columns dynamically
+        target_index = team_df.columns.get_loc("Target")
+        employee_cols = team_df.columns[target_index + 1:]
 
-        skill = row["Competence"]
-        current = row[current_col]
-        target = row[target_col]
+        clean_employee_cols = [
+            col for col in employee_cols
+            if "average" not in col.lower()
+            and "maximum" not in col.lower()
+            and "unnamed" not in col.lower()
+        ]
 
-        st.markdown(f"### {skill}")
-        st.write(f"Current: {current} | Target: {target}")
+        st.subheader("Team Average Dashboard")
 
-        if st.button(f"AI Suggest Improvement for {skill}"):
+        team_df["Team Average"] = team_df[clean_employee_cols].mean(axis=1)
 
-            prompt = f"""
-            Skill: {skill}
-            Current Level: {current}
-            Target Level: {target}
-            Suggest improvement steps.
-            """
+        grouped = team_df.groupby("Area").mean(numeric_only=True)
 
-            response = llm.invoke(prompt)
-            st.write(response.content)
+        st.dataframe(grouped[["Target", "Team Average"]])
+
+# =========================================================
+# 🤖 RAG CHAT ASSISTANT
+# =========================================================
+
+elif menu == "🤖 AI Chat Assistant (RAG)":
+
+    st.header("🤖 RAG-Based AI Competency Assistant")
+
+    uploaded_file = st.file_uploader("Upload Team Competency Sheet for AI Analysis")
+
+    if uploaded_file:
+        team_df = pd.read_excel(uploaded_file, header=6)
+        team_df.columns = team_df.columns.str.strip()
+
+        st.success("Team Data Loaded for AI")
+
+        # Convert DataFrame into structured text knowledge
+        def dataframe_to_text(df):
+            text_data = ""
+
+            for _, row in df.iterrows():
+                text_data += f"""
+                Area: {row.get('Area')}
+                Competence: {row.get('Competence')}
+                Target: {row.get('Target')}
+                """
+
+                for col in df.columns:
+                    if col not in ["Area", "Competence", "Target"]:
+                        text_data += f"{col}: {row.get(col)}\n"
+
+                text_data += "\n"
+
+            return text_data
+
+        knowledge_base = dataframe_to_text(team_df)
+
+        st.subheader("Ask About Team Skills")
+
+        user_question = st.text_input(
+            "Example: Who has highest Software Development skill?"
+        )
+
+        if st.button("Ask AI") and user_question:
+
+            with st.spinner("AI is analyzing team data..."):
+
+                prompt = f"""
+                You are an AI Competency Analytics Assistant.
+
+                Use ONLY the data provided below to answer accurately.
+
+                ====================
+                TEAM DATA:
+                ====================
+                {knowledge_base}
+
+                ====================
+                QUESTION:
+                ====================
+                {user_question}
+
+                Provide clear, structured answer.
+                """
+
+                response = llm.invoke(prompt)
+
+                st.success("AI Response:")
+                st.write(response.content)

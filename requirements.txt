@@ -1,6 +1,7 @@
 streamlit
 pandas
-numpy
 openpyxl
+langchain
 langchain-groq
 python-dotenv
+
