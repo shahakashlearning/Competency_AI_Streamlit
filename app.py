@@ -249,7 +249,6 @@ Explanation:
                 except Exception as e:
                     st.error("AI Request Failed")
                     st.write(str(e))
-
 # =========================================================
 # 🧠 SMART SKILL RECOMMENDATION ENGINE
 # =========================================================
@@ -290,30 +289,49 @@ elif menu == "🧠 Smart Skill Recommendations":
 
             df["Gap"] = df[target_col] - df[current_col]
 
+            # Assign Risk Level
+            def assign_risk(gap):
+                if gap >= 2:
+                    return "High"
+                elif gap == 1:
+                    return "Medium"
+                elif gap > 0:
+                    return "Low"
+                else:
+                    return "No Risk"
+
+            df["Risk Level"] = df["Gap"].apply(assign_risk)
+
             df = df.sort_values("Gap", ascending=False)
 
-            st.subheader("Top Skill Gaps (Priority Order)")
+            # 🔥 FILTER
+            risk_filter = st.multiselect(
+                "Filter by Risk Level",
+                ["High", "Medium", "Low"],
+                default=["High", "Medium", "Low"]
+            )
 
-            for index, row in df.iterrows():
+            filtered_df = df[df["Risk Level"].isin(risk_filter)]
 
-                gap = row["Gap"]
+            st.subheader("Filtered Skill Gaps")
 
-                if gap <= 0:
+            for _, row in filtered_df.iterrows():
+
+                if row["Gap"] <= 0:
                     continue
 
-                if gap >= 2:
-                    risk = "🔴 High"
-                elif gap == 1:
-                    risk = "🟡 Medium"
-                else:
-                    risk = "🟢 Low"
+                risk_icon = {
+                    "High": "🔴",
+                    "Medium": "🟡",
+                    "Low": "🟢"
+                }
 
                 st.markdown(f"""
-                **Skill Area:** {row[area_col]}  
+                {risk_icon[row["Risk Level"]]} **Skill Area:** {row[area_col]}  
                 Target: {row[target_col]}  
                 Current: {row[current_col]}  
-                Gap: {gap}  
-                Risk Level: {risk}
+                Gap: {row["Gap"]}  
+                Risk Level: {row["Risk Level"]}
                 """)
                 st.divider()
 
@@ -341,29 +359,47 @@ elif menu == "🧠 Smart Skill Recommendations":
 
             df["Gap"] = df[target_col] - df["Team Average"]
 
+            def assign_risk(gap):
+                if gap >= 2:
+                    return "High"
+                elif gap >= 1:
+                    return "Medium"
+                elif gap > 0:
+                    return "Low"
+                else:
+                    return "No Risk"
+
+            df["Risk Level"] = df["Gap"].apply(assign_risk)
+
             df = df.sort_values("Gap", ascending=False)
 
-            st.subheader("Team Skill Risk Ranking")
+            # 🔥 FILTER
+            risk_filter = st.multiselect(
+                "Filter by Risk Level",
+                ["High", "Medium", "Low"],
+                default=["High", "Medium", "Low"]
+            )
 
-            for index, row in df.iterrows():
+            filtered_df = df[df["Risk Level"].isin(risk_filter)]
 
-                gap = row["Gap"]
+            st.subheader("Filtered Team Skill Risk Ranking")
 
-                if gap <= 0:
+            for _, row in filtered_df.iterrows():
+
+                if row["Gap"] <= 0:
                     continue
 
-                if gap >= 2:
-                    risk = "🔴 High"
-                elif gap >= 1:
-                    risk = "🟡 Medium"
-                else:
-                    risk = "🟢 Low"
+                risk_icon = {
+                    "High": "🔴",
+                    "Medium": "🟡",
+                    "Low": "🟢"
+                }
 
                 st.markdown(f"""
-                **Skill Area:** {row[area_col]}  
+                {risk_icon[row["Risk Level"]]} **Skill Area:** {row[area_col]}  
                 Target: {row[target_col]}  
                 Team Average: {row["Team Average"]:.2f}  
-                Gap: {gap:.2f}  
-                Risk Level: {risk}
+                Gap: {row["Gap"]:.2f}  
+                Risk Level: {row["Risk Level"]}
                 """)
                 st.divider()
