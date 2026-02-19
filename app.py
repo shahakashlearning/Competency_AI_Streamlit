@@ -13,7 +13,7 @@ st.set_page_config(page_title="AI Competency Intelligence Platform", layout="wid
 st.title("🚀 AI Competency Intelligence Platform")
 
 # =========================================================
-# LOAD GROQ MODEL (UPDATED MODEL NAME)
+# LOAD GROQ MODEL
 # =========================================================
 
 if "GROQ_API_KEY" not in st.secrets:
@@ -21,12 +21,12 @@ if "GROQ_API_KEY" not in st.secrets:
     st.stop()
 
 llm = ChatGroq(
-    model="llama3-70b-8192",  # Updated supported model
+    model="llama3-70b-8192",
     api_key=st.secrets["GROQ_API_KEY"]
 )
 
 # =========================================================
-# LOAD EMBEDDING MODEL (cached for performance)
+# LOAD EMBEDDING MODEL (CACHED)
 # =========================================================
 
 @st.cache_resource
@@ -36,7 +36,7 @@ def load_embedding_model():
 embedding_model = load_embedding_model()
 
 # =========================================================
-# SIDEBAR MENU
+# SIDEBAR NAVIGATION
 # =========================================================
 
 menu = st.sidebar.radio(
@@ -103,7 +103,6 @@ elif menu == "👥 Team Competency Check":
         target_index = team_df.columns.get_loc("Target")
         employee_cols = team_df.columns[target_index + 1:]
 
-        # Clean unwanted columns
         employee_cols = [
             col for col in employee_cols
             if "average" not in col.lower()
@@ -118,8 +117,10 @@ elif menu == "👥 Team Competency Check":
         # ----------------------------
         with tab1:
             st.subheader("Team Average Dashboard")
+
             team_df["Team Average"] = team_df[employee_cols].mean(axis=1)
             grouped = team_df.groupby(area_col).mean(numeric_only=True)
+
             st.dataframe(grouped[[target_col, "Team Average"]])
 
         # ----------------------------
@@ -127,6 +128,7 @@ elif menu == "👥 Team Competency Check":
         # ----------------------------
         with tab2:
             selected_emp = st.selectbox("Select Team Member", employee_cols)
+
             grouped = team_df.groupby(area_col).mean(numeric_only=True)
             st.dataframe(grouped[[target_col, selected_emp]])
 
@@ -148,24 +150,27 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
         st.success("Team Data Loaded for AI")
 
         # ===============================
-        # 1️⃣ Convert each row to text chunk
+        # 1️⃣ Convert each row into chunk
         # ===============================
 
         chunks = []
 
         for _, row in team_df.iterrows():
-            row_text = " | ".join([f"{col}: {row[col]}" for col in team_df.columns])
+            row_text = " | ".join(
+                [f"{col}: {row[col]}" for col in team_df.columns if pd.notna(row[col])]
+            )
             chunks.append(row_text)
 
         # ===============================
-        # 2️⃣ Create embeddings & FAISS index
+        # 2️⃣ Create Embeddings + FAISS Index
         # ===============================
 
         embeddings = embedding_model.encode(chunks)
+        embeddings = np.array(embeddings).astype("float32")
 
         dimension = embeddings.shape[1]
         index = faiss.IndexFlatL2(dimension)
-        index.add(np.array(embeddings))
+        index.add(embeddings)
 
         st.info("Vector database created successfully.")
 
@@ -182,31 +187,43 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
             with st.spinner("Retrieving relevant data using vector search..."):
 
                 question_embedding = embedding_model.encode([user_question])
+                question_embedding = np.array(question_embedding).astype("float32")
 
-                distances, indices = index.search(
-                    np.array(question_embedding),
-                    k=5  # Retrieve top 5 relevant rows
-                )
+                distances, indices = index.search(question_embedding, k=5)
 
                 retrieved_chunks = [chunks[i] for i in indices[0]]
                 context_text = "\n".join(retrieved_chunks)
 
-                prompt = f"""
-                You are an AI Competency Analytics Assistant.
+                # ===============================
+                # 4️⃣ Improved Prompt
+                # ===============================
 
-                Use ONLY the retrieved data below to answer accurately.
+                prompt = f"""
+                You are an expert Competency Analytics AI.
+
+                IMPORTANT RULES:
+                1. Use ONLY the retrieved data below.
+                2. Compare numeric values properly.
+                3. Identify highest / lowest clearly.
+                4. Mention employee name and exact value.
+                5. Do NOT guess.
+                6. If skill not found, say clearly "Skill not found in data."
 
                 Retrieved Data:
                 {context_text}
 
-                Question:
+                User Question:
                 {user_question}
 
-                Provide clear and precise answer.
+                Provide response in this format:
+
+                Answer:
+                Explanation:
                 """
 
                 try:
                     response = llm.invoke(prompt)
+
                     st.success("AI Response:")
                     st.write(response.content)
 
