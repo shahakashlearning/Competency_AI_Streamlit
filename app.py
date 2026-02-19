@@ -64,9 +64,11 @@ menu = st.sidebar.radio(
     [
         "👤 Self Competency Check",
         "👥 Team Competency Check",
-        "🤖 AI Chat Assistant (Advanced RAG)"
+        "🤖 AI Chat Assistant (Advanced RAG)",
+        "🧠 Smart Skill Recommendations"
     ]
 )
+
 
 # =========================================================
 # 👤 SELF COMPETENCY CHECK
@@ -247,3 +249,121 @@ Explanation:
                 except Exception as e:
                     st.error("AI Request Failed")
                     st.write(str(e))
+
+# =========================================================
+# 🧠 SMART SKILL RECOMMENDATION ENGINE
+# =========================================================
+
+elif menu == "🧠 Smart Skill Recommendations":
+
+    st.header("🧠 Smart Skill Recommendation Engine")
+
+    recommendation_mode = st.radio(
+        "Select Mode",
+        ["Individual", "Team"]
+    )
+
+    uploaded_file = st.file_uploader("Upload Competency Sheet")
+
+    if uploaded_file:
+
+        df = pd.read_excel(uploaded_file, header=6)
+        df.columns = df.columns.str.strip()
+
+        area_col = "Area"
+        target_col = "Target"
+
+        target_index = df.columns.get_loc("Target")
+
+        # =====================================================
+        # 👤 INDIVIDUAL MODE
+        # =====================================================
+
+        if recommendation_mode == "Individual":
+
+            current_col = df.columns[target_index + 1]
+
+            df = df[[area_col, target_col, current_col]].dropna()
+
+            df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
+            df[current_col] = pd.to_numeric(df[current_col], errors="coerce")
+
+            df["Gap"] = df[target_col] - df[current_col]
+
+            df = df.sort_values("Gap", ascending=False)
+
+            st.subheader("Top Skill Gaps (Priority Order)")
+
+            for index, row in df.iterrows():
+
+                gap = row["Gap"]
+
+                if gap <= 0:
+                    continue
+
+                if gap >= 2:
+                    risk = "🔴 High"
+                elif gap == 1:
+                    risk = "🟡 Medium"
+                else:
+                    risk = "🟢 Low"
+
+                st.markdown(f"""
+                **Skill Area:** {row[area_col]}  
+                Target: {row[target_col]}  
+                Current: {row[current_col]}  
+                Gap: {gap}  
+                Risk Level: {risk}
+                """)
+                st.divider()
+
+        # =====================================================
+        # 👥 TEAM MODE
+        # =====================================================
+
+        else:
+
+            employee_cols = df.columns[target_index + 1:]
+
+            employee_cols = [
+                col for col in employee_cols
+                if "average" not in col.lower()
+                and "maximum" not in col.lower()
+                and "unnamed" not in col.lower()
+            ]
+
+            df["Team Average"] = df[employee_cols].mean(axis=1)
+
+            df = df[[area_col, target_col, "Team Average"]].dropna()
+
+            df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
+            df["Team Average"] = pd.to_numeric(df["Team Average"], errors="coerce")
+
+            df["Gap"] = df[target_col] - df["Team Average"]
+
+            df = df.sort_values("Gap", ascending=False)
+
+            st.subheader("Team Skill Risk Ranking")
+
+            for index, row in df.iterrows():
+
+                gap = row["Gap"]
+
+                if gap <= 0:
+                    continue
+
+                if gap >= 2:
+                    risk = "🔴 High"
+                elif gap >= 1:
+                    risk = "🟡 Medium"
+                else:
+                    risk = "🟢 Low"
+
+                st.markdown(f"""
+                **Skill Area:** {row[area_col]}  
+                Target: {row[target_col]}  
+                Team Average: {row["Team Average"]:.2f}  
+                Gap: {gap:.2f}  
+                Risk Level: {risk}
+                """)
+                st.divider()
