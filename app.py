@@ -65,7 +65,8 @@ menu = st.sidebar.radio(
         "👤 Self Competency Check",
         "👥 Team Competency Check",
         "🤖 AI Chat Assistant (Advanced RAG)",
-        "🧠 Smart Skill Recommendations"
+        "🧠 Smart Skill Recommendations",
+        "📈 Predictive Skill Forecasting"
     ]
 )
 
@@ -401,5 +402,128 @@ elif menu == "🧠 Smart Skill Recommendations":
                 Team Average: {row["Team Average"]:.2f}  
                 Gap: {row["Gap"]:.2f}  
                 Risk Level: {row["Risk Level"]}
+                """)
+                st.divider()
+
+# =========================================================
+# 📈 PREDICTIVE SKILL GAP FORECASTING
+# =========================================================
+
+elif menu == "📈 Predictive Skill Forecasting":
+
+    st.header("📈 Predictive Skill Gap Forecasting")
+
+    forecasting_mode = st.radio(
+        "Select Mode",
+        ["Individual", "Team"]
+    )
+
+    uploaded_file = st.file_uploader("Upload Competency Sheet")
+
+    if uploaded_file:
+
+        df = pd.read_excel(uploaded_file, header=6)
+        df.columns = df.columns.str.strip()
+
+        area_col = "Area"
+        target_col = "Target"
+        target_index = df.columns.get_loc("Target")
+
+        # 🔥 User Input: Improvement Rate
+        improvement_rate = st.slider(
+            "Improvement per Quarter",
+            min_value=0.1,
+            max_value=1.0,
+            value=0.5,
+            step=0.1
+        )
+
+        forecast_period = st.slider(
+            "Forecast Period (Quarters)",
+            min_value=1,
+            max_value=12,
+            value=4
+        )
+
+        # =====================================================
+        # 👤 INDIVIDUAL MODE
+        # =====================================================
+
+        if forecasting_mode == "Individual":
+
+            current_col = df.columns[target_index + 1]
+
+            df = df[[area_col, target_col, current_col]].dropna()
+
+            df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
+            df[current_col] = pd.to_numeric(df[current_col], errors="coerce")
+
+            df["Future Skill"] = df[current_col] + (
+                improvement_rate * forecast_period
+            )
+
+            df["Remaining Gap"] = df[target_col] - df["Future Skill"]
+
+            df["Estimated Quarters to Target"] = (
+                (df[target_col] - df[current_col]) / improvement_rate
+            )
+
+            st.subheader("Forecast Results")
+
+            for _, row in df.iterrows():
+
+                st.markdown(f"""
+                **Skill Area:** {row[area_col]}  
+                Current: {row[current_col]}  
+                Target: {row[target_col]}  
+                Forecast After {forecast_period} Quarters: {row["Future Skill"]:.2f}  
+                Remaining Gap: {row["Remaining Gap"]:.2f}  
+                Estimated Time to Target: {row["Estimated Quarters to Target"]:.1f} Quarters
+                """)
+                st.divider()
+
+        # =====================================================
+        # 👥 TEAM MODE
+        # =====================================================
+
+        else:
+
+            employee_cols = df.columns[target_index + 1:]
+
+            employee_cols = [
+                col for col in employee_cols
+                if "average" not in col.lower()
+                and "maximum" not in col.lower()
+                and "unnamed" not in col.lower()
+            ]
+
+            df["Team Average"] = df[employee_cols].mean(axis=1)
+
+            df = df[[area_col, target_col, "Team Average"]].dropna()
+
+            df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
+            df["Team Average"] = pd.to_numeric(df["Team Average"], errors="coerce")
+
+            df["Future Skill"] = df["Team Average"] + (
+                improvement_rate * forecast_period
+            )
+
+            df["Remaining Gap"] = df[target_col] - df["Future Skill"]
+
+            df["Estimated Quarters to Target"] = (
+                (df[target_col] - df["Team Average"]) / improvement_rate
+            )
+
+            st.subheader("Team Forecast Results")
+
+            for _, row in df.iterrows():
+
+                st.markdown(f"""
+                **Skill Area:** {row[area_col]}  
+                Team Average: {row["Team Average"]:.2f}  
+                Target: {row[target_col]}  
+                Forecast After {forecast_period} Quarters: {row["Future Skill"]:.2f}  
+                Remaining Gap: {row["Remaining Gap"]:.2f}  
+                Estimated Time to Target: {row["Estimated Quarters to Target"]:.1f} Quarters
                 """)
                 st.divider()
