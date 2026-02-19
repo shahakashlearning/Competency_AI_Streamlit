@@ -66,7 +66,8 @@ menu = st.sidebar.radio(
         "👥 Team Competency Check",
         "🤖 AI Chat Assistant (Advanced RAG)",
         "🧠 Smart Skill Recommendations",
-        "📈 Predictive Skill Forecasting"
+        "📈 Predictive Skill Forecasting",
+        "📄 AI PDF Report Generator"
     ]
 )
 
@@ -568,3 +569,159 @@ elif menu == "📈 Predictive Skill Forecasting":
                 Estimated Time to Target: {row["Estimated Quarters to Target"]:.1f} Quarters
                 """)
                 st.divider()
+
+# =========================================================
+# 📄 AI GENERATED PDF REPORT
+# =========================================================
+
+elif menu == "📄 AI PDF Report Generator":
+
+    import io
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+
+    st.header("📄 AI-Generated Competency Report")
+
+    report_mode = st.radio(
+        "Select Report Type",
+        ["Individual", "Team"]
+    )
+
+    uploaded_file = st.file_uploader("Upload Competency Sheet")
+
+    if uploaded_file:
+
+        df = pd.read_excel(uploaded_file, header=6)
+        df.columns = df.columns.str.strip()
+
+        area_col = "Area"
+        target_col = "Target"
+        target_index = df.columns.get_loc("Target")
+
+        # ===============================
+        # INDIVIDUAL REPORT
+        # ===============================
+
+        if report_mode == "Individual":
+
+            current_col = df.columns[target_index + 1]
+
+            df = df[[area_col, target_col, current_col]].dropna()
+
+            df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
+            df[current_col] = pd.to_numeric(df[current_col], errors="coerce")
+
+            df["Gap"] = df[target_col] - df[current_col]
+
+            total_target = df[target_col].sum()
+            total_current = df[current_col].sum()
+
+            overall_score = (
+                (total_current / total_target) * 100 if total_target else 0
+            )
+
+            top_risks = df.sort_values("Gap", ascending=False).head(3)
+
+            # AI Insight
+            prompt = f"""
+            You are an HR Analytics Expert.
+
+            Overall Score: {overall_score:.2f}%
+            Top Risk Skills:
+            {top_risks.to_string(index=False)}
+
+            Provide executive summary.
+            """
+
+            ai_summary = llm.invoke(prompt).content
+
+        # ===============================
+        # TEAM REPORT
+        # ===============================
+
+        else:
+
+            employee_cols = df.columns[target_index + 1:]
+
+            employee_cols = [
+                col for col in employee_cols
+                if "average" not in col.lower()
+                and "maximum" not in col.lower()
+                and "unnamed" not in col.lower()
+            ]
+
+            df["Team Average"] = df[employee_cols].mean(axis=1)
+
+            df = df[[area_col, target_col, "Team Average"]].dropna()
+
+            df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
+            df["Team Average"] = pd.to_numeric(df["Team Average"], errors="coerce")
+
+            df["Gap"] = df[target_col] - df["Team Average"]
+
+            total_target = df[target_col].sum()
+            total_current = df["Team Average"].sum()
+
+            overall_score = (
+                (total_current / total_target) * 100 if total_target else 0
+            )
+
+            top_risks = df.sort_values("Gap", ascending=False).head(3)
+
+            prompt = f"""
+            You are a Workforce Strategy Expert.
+
+            Team Overall Score: {overall_score:.2f}%
+            Top Risk Areas:
+            {top_risks.to_string(index=False)}
+
+            Provide executive summary.
+            """
+
+            ai_summary = llm.invoke(prompt).content
+
+        # ===============================
+        # CREATE PDF
+        # ===============================
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        elements = []
+
+        styles = getSampleStyleSheet()
+
+        elements.append(Paragraph("Competency Intelligence Report", styles["Title"]))
+        elements.append(Spacer(1, 0.5 * inch))
+
+        elements.append(Paragraph(f"Overall Score: {overall_score:.2f}%", styles["Heading2"]))
+        elements.append(Spacer(1, 0.3 * inch))
+
+        elements.append(Paragraph("Top Risk Areas:", styles["Heading2"]))
+        elements.append(Spacer(1, 0.2 * inch))
+
+        for _, row in top_risks.iterrows():
+            elements.append(
+                Paragraph(
+                    f"{row[area_col]} - Gap: {row['Gap']:.2f}",
+                    styles["Normal"]
+                )
+            )
+            elements.append(Spacer(1, 0.2 * inch))
+
+        elements.append(Spacer(1, 0.5 * inch))
+        elements.append(Paragraph("AI Executive Summary:", styles["Heading2"]))
+        elements.append(Spacer(1, 0.2 * inch))
+        elements.append(Paragraph(ai_summary, styles["Normal"]))
+
+        doc.build(elements)
+
+        buffer.seek(0)
+
+        st.download_button(
+            label="📥 Download PDF Report",
+            data=buffer,
+            file_name="Competency_Report.pdf",
+            mime="application/pdf"
+        )

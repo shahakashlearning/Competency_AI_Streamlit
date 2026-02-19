@@ -6,6 +6,8 @@ langchain-groq
 faiss-cpu
 sentence-transformers
 numpy
+reportlab
+
 
 
 
