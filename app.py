@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import faiss
+from sentence_transformers import SentenceTransformer
 from langchain_groq import ChatGroq
 
 # =========================================================
@@ -8,11 +10,10 @@ from langchain_groq import ChatGroq
 # =========================================================
 
 st.set_page_config(page_title="AI Competency Intelligence Platform", layout="wide")
-
 st.title("🚀 AI Competency Intelligence Platform")
 
 # =========================================================
-# LOAD GROQ SECRET
+# LOAD GROQ MODEL (UPDATED MODEL NAME)
 # =========================================================
 
 if "GROQ_API_KEY" not in st.secrets:
@@ -20,9 +21,19 @@ if "GROQ_API_KEY" not in st.secrets:
     st.stop()
 
 llm = ChatGroq(
-    model="meta-llama/llama-4-scout-17b-16e-instruct",
+    model="llama3-70b-8192",  # Updated supported model
     api_key=st.secrets["GROQ_API_KEY"]
 )
+
+# =========================================================
+# LOAD EMBEDDING MODEL (cached for performance)
+# =========================================================
+
+@st.cache_resource
+def load_embedding_model():
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+embedding_model = load_embedding_model()
 
 # =========================================================
 # SIDEBAR MENU
@@ -33,7 +44,7 @@ menu = st.sidebar.radio(
     [
         "👤 Self Competency Check",
         "👥 Team Competency Check",
-        "🤖 AI Chat Assistant (RAG)"
+        "🤖 AI Chat Assistant (Advanced RAG)"
     ]
 )
 
@@ -55,6 +66,7 @@ if menu == "👤 Self Competency Check":
 
         area_col = "Area"
         target_col = "Target"
+
         target_index = df.columns.get_loc("Target")
         current_col = df.columns[target_index + 1]
 
@@ -102,38 +114,29 @@ elif menu == "👥 Team Competency Check":
         tab1, tab2 = st.tabs(["📊 Team Average", "👤 Individual Members"])
 
         # ----------------------------
-        # TEAM AVERAGE DASHBOARD
+        # TEAM AVERAGE
         # ----------------------------
-
         with tab1:
-
             st.subheader("Team Average Dashboard")
-
             team_df["Team Average"] = team_df[employee_cols].mean(axis=1)
-
             grouped = team_df.groupby(area_col).mean(numeric_only=True)
-
             st.dataframe(grouped[[target_col, "Team Average"]])
 
         # ----------------------------
-        # INDIVIDUAL MEMBER DASHBOARD
+        # INDIVIDUAL MEMBER
         # ----------------------------
-
         with tab2:
-
             selected_emp = st.selectbox("Select Team Member", employee_cols)
-
             grouped = team_df.groupby(area_col).mean(numeric_only=True)
-
             st.dataframe(grouped[[target_col, selected_emp]])
 
 # =========================================================
-# 🤖 RAG CHAT ASSISTANT
+# 🤖 ADVANCED RAG CHAT ASSISTANT
 # =========================================================
 
-elif menu == "🤖 AI Chat Assistant (RAG)":
+elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
 
-    st.header("🤖 RAG-Based AI Competency Assistant")
+    st.header("🤖 Advanced RAG AI Competency Assistant")
 
     uploaded_file = st.file_uploader("Upload Team Competency Sheet for AI")
 
@@ -144,50 +147,62 @@ elif menu == "🤖 AI Chat Assistant (RAG)":
 
         st.success("Team Data Loaded for AI")
 
+        # ===============================
+        # 1️⃣ Convert each row to text chunk
+        # ===============================
+
+        chunks = []
+
+        for _, row in team_df.iterrows():
+            row_text = " | ".join([f"{col}: {row[col]}" for col in team_df.columns])
+            chunks.append(row_text)
+
+        # ===============================
+        # 2️⃣ Create embeddings & FAISS index
+        # ===============================
+
+        embeddings = embedding_model.encode(chunks)
+
+        dimension = embeddings.shape[1]
+        index = faiss.IndexFlatL2(dimension)
+        index.add(np.array(embeddings))
+
+        st.info("Vector database created successfully.")
+
+        # ===============================
+        # 3️⃣ Ask Question
+        # ===============================
+
         user_question = st.text_input(
-            "Ask something like: Who has highest Software Development skill?"
+            "Ask: Who has highest Software Development skill?"
         )
 
         if st.button("Ask AI") and user_question:
 
-            # =====================================================
-            # 🔎 SIMPLE RETRIEVAL LOGIC (Prevents Token Overflow)
-            # =====================================================
+            with st.spinner("Retrieving relevant data using vector search..."):
 
-            filtered_df = team_df.copy()
+                question_embedding = embedding_model.encode([user_question])
 
-            keywords = user_question.lower().split()
+                distances, indices = index.search(
+                    np.array(question_embedding),
+                    k=5  # Retrieve top 5 relevant rows
+                )
 
-            for word in keywords:
-                filtered_df = filtered_df[
-                    filtered_df.apply(
-                        lambda row: row.astype(str).str.lower().str.contains(word).any(),
-                        axis=1
-                    )
-                ]
-
-            if filtered_df.empty:
-                filtered_df = team_df.head(10)
-
-            # Limit rows (VERY IMPORTANT)
-            filtered_df = filtered_df.head(15)
-
-            context_text = filtered_df.to_string(index=False)
-
-            with st.spinner("AI analyzing team data..."):
+                retrieved_chunks = [chunks[i] for i in indices[0]]
+                context_text = "\n".join(retrieved_chunks)
 
                 prompt = f"""
                 You are an AI Competency Analytics Assistant.
 
-                Use ONLY the data below to answer.
+                Use ONLY the retrieved data below to answer accurately.
 
-                TEAM DATA:
+                Retrieved Data:
                 {context_text}
 
-                QUESTION:
+                Question:
                 {user_question}
 
-                Provide clear structured answer.
+                Provide clear and precise answer.
                 """
 
                 try:
