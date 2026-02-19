@@ -13,15 +13,35 @@ st.set_page_config(page_title="AI Competency Intelligence Platform", layout="wid
 st.title("🚀 AI Competency Intelligence Platform")
 
 # =========================================================
-# LOAD GROQ MODEL
+# LOAD GROQ SECRET
 # =========================================================
 
 if "GROQ_API_KEY" not in st.secrets:
     st.error("GROQ_API_KEY not found in Streamlit Secrets")
     st.stop()
 
+# =========================================================
+# SIDEBAR SETTINGS (MODEL + TEMPERATURE)
+# =========================================================
+
+st.sidebar.subheader("⚙️ AI Settings")
+
+model_name = st.sidebar.selectbox(
+    "Select Model",
+    ["meta-llama/llama-4-scout-17b-16e-instruct", "mixtral-8x7b-32768"]
+)
+
+temperature = st.sidebar.slider(
+    "Temperature",
+    min_value=0.0,
+    max_value=1.0,
+    value=0.2,
+    step=0.1
+)
+
 llm = ChatGroq(
-    model="llama3-70b-8192",
+    model=model_name,
+    temperature=temperature,
     api_key=st.secrets["GROQ_API_KEY"]
 )
 
@@ -36,7 +56,7 @@ def load_embedding_model():
 embedding_model = load_embedding_model()
 
 # =========================================================
-# SIDEBAR NAVIGATION
+# NAVIGATION
 # =========================================================
 
 menu = st.sidebar.radio(
@@ -61,8 +81,6 @@ if menu == "👤 Self Competency Check":
     if uploaded_file:
         df = pd.read_excel(uploaded_file, header=6)
         df.columns = df.columns.str.strip()
-
-        st.success("File Loaded Successfully")
 
         area_col = "Area"
         target_col = "Target"
@@ -95,8 +113,6 @@ elif menu == "👥 Team Competency Check":
         team_df = pd.read_excel(uploaded_file, header=6)
         team_df.columns = team_df.columns.str.strip()
 
-        st.success("Team File Loaded")
-
         area_col = "Area"
         target_col = "Target"
 
@@ -112,23 +128,14 @@ elif menu == "👥 Team Competency Check":
 
         tab1, tab2 = st.tabs(["📊 Team Average", "👤 Individual Members"])
 
-        # ----------------------------
-        # TEAM AVERAGE
-        # ----------------------------
         with tab1:
             st.subheader("Team Average Dashboard")
-
             team_df["Team Average"] = team_df[employee_cols].mean(axis=1)
             grouped = team_df.groupby(area_col).mean(numeric_only=True)
-
             st.dataframe(grouped[[target_col, "Team Average"]])
 
-        # ----------------------------
-        # INDIVIDUAL MEMBER
-        # ----------------------------
         with tab2:
             selected_emp = st.selectbox("Select Team Member", employee_cols)
-
             grouped = team_df.groupby(area_col).mean(numeric_only=True)
             st.dataframe(grouped[[target_col, selected_emp]])
 
@@ -147,10 +154,10 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
         team_df = pd.read_excel(uploaded_file, header=6)
         team_df.columns = team_df.columns.str.strip()
 
-        st.success("Team Data Loaded for AI")
+        st.success("Team Data Loaded")
 
         # ===============================
-        # 1️⃣ Convert each row into chunk
+        # 1️⃣ Convert rows into chunks
         # ===============================
 
         chunks = []
@@ -162,7 +169,7 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
             chunks.append(row_text)
 
         # ===============================
-        # 2️⃣ Create Embeddings + FAISS Index
+        # 2️⃣ Create FAISS Index
         # ===============================
 
         embeddings = embedding_model.encode(chunks)
@@ -175,16 +182,49 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
         st.info("Vector database created successfully.")
 
         # ===============================
-        # 3️⃣ Ask Question
+        # 3️⃣ Dynamic Prompt Editor
         # ===============================
 
-        user_question = st.text_input(
-            "Ask: Who has highest Software Development skill?"
+        st.subheader("🔧 Prompt Configuration")
+
+        default_prompt_template = """
+You are an expert Competency Analytics AI.
+
+IMPORTANT RULES:
+1. Use ONLY the retrieved data.
+2. Compare numeric values carefully.
+3. Identify highest or lowest clearly.
+4. Mention employee name and value.
+5. Do NOT guess.
+6. If skill not found, say clearly "Skill not found in data."
+
+Retrieved Data:
+{context}
+
+User Question:
+{question}
+
+Provide response in format:
+
+Answer:
+Explanation:
+"""
+
+        user_prompt_template = st.text_area(
+            "Edit AI Prompt Template:",
+            value=default_prompt_template,
+            height=300
         )
+
+        # ===============================
+        # 4️⃣ Ask Question
+        # ===============================
+
+        user_question = st.text_input("Ask your question")
 
         if st.button("Ask AI") and user_question:
 
-            with st.spinner("Retrieving relevant data using vector search..."):
+            with st.spinner("Retrieving relevant data..."):
 
                 question_embedding = embedding_model.encode([user_question])
                 question_embedding = np.array(question_embedding).astype("float32")
@@ -194,36 +234,13 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
                 retrieved_chunks = [chunks[i] for i in indices[0]]
                 context_text = "\n".join(retrieved_chunks)
 
-                # ===============================
-                # 4️⃣ Improved Prompt
-                # ===============================
-
-                prompt = f"""
-                You are an expert Competency Analytics AI.
-
-                IMPORTANT RULES:
-                1. Use ONLY the retrieved data below.
-                2. Compare numeric values properly.
-                3. Identify highest / lowest clearly.
-                4. Mention employee name and exact value.
-                5. Do NOT guess.
-                6. If skill not found, say clearly "Skill not found in data."
-
-                Retrieved Data:
-                {context_text}
-
-                User Question:
-                {user_question}
-
-                Provide response in this format:
-
-                Answer:
-                Explanation:
-                """
+                prompt = user_prompt_template.format(
+                    context=context_text,
+                    question=user_question
+                )
 
                 try:
                     response = llm.invoke(prompt)
-
                     st.success("AI Response:")
                     st.write(response.content)
 
