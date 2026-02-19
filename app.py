@@ -143,13 +143,14 @@ elif menu == "👥 Team Competency Check":
             st.dataframe(grouped[[target_col, selected_emp]])
 
 # =========================================================
-# 🤖 ADVANCED RAG CHAT ASSISTANT (WITH MEMORY)
+# 🤖 ADVANCED RAG CHAT ASSISTANT (WITH MEMORY + PROMPT EDITOR)
 # =========================================================
 
 elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
 
-    st.header("🤖 AI Competency Copilot")
+    st.header("🤖 Advanced RAG AI Competency Assistant")
 
+    # Initialize memory
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -163,7 +164,7 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
         st.success("Team Data Loaded")
 
         # ===============================
-        # Create Vector Store
+        # 1️⃣ Convert rows into chunks
         # ===============================
 
         chunks = []
@@ -174,6 +175,10 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
             )
             chunks.append(row_text)
 
+        # ===============================
+        # 2️⃣ Create FAISS Index
+        # ===============================
+
         embeddings = embedding_model.encode(chunks)
         embeddings = np.array(embeddings).astype("float32")
 
@@ -181,8 +186,48 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
         index = faiss.IndexFlatL2(dimension)
         index.add(embeddings)
 
+        st.info("Vector database created successfully.")
+
         # ===============================
-        # Display Chat History
+        # 3️⃣ Dynamic Prompt Editor
+        # ===============================
+
+        st.subheader("🔧 Prompt Configuration")
+
+        default_prompt_template = """
+You are an expert Competency Analytics AI.
+
+IMPORTANT RULES:
+1. Use ONLY the retrieved data.
+2. Use conversation history if relevant.
+3. Compare numeric values carefully.
+4. Identify highest or lowest clearly.
+5. Mention employee name and value.
+6. Do NOT guess.
+
+Conversation History:
+{history}
+
+Retrieved Data:
+{context}
+
+User Question:
+{question}
+
+Provide response in format:
+
+Answer:
+Explanation:
+"""
+
+        user_prompt_template = st.text_area(
+            "Edit AI Prompt Template:",
+            value=default_prompt_template,
+            height=300
+        )
+
+        # ===============================
+        # 4️⃣ Display Chat History
         # ===============================
 
         for message in st.session_state.chat_history:
@@ -190,14 +235,14 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
                 st.markdown(message["content"])
 
         # ===============================
-        # Chat Input
+        # 5️⃣ Chat Input
         # ===============================
 
         user_question = st.chat_input("Ask your question")
 
         if user_question:
 
-            # Display user message
+            # Show user message
             st.session_state.chat_history.append(
                 {"role": "user", "content": user_question}
             )
@@ -205,52 +250,46 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
             with st.chat_message("user"):
                 st.markdown(user_question)
 
-            # Retrieve context from vector DB
-            question_embedding = embedding_model.encode([user_question])
-            question_embedding = np.array(question_embedding).astype("float32")
+            with st.spinner("Retrieving relevant data..."):
 
-            distances, indices = index.search(question_embedding, k=5)
+                # Vector search
+                question_embedding = embedding_model.encode([user_question])
+                question_embedding = np.array(question_embedding).astype("float32")
 
-            retrieved_chunks = [chunks[i] for i in indices[0]]
-            context_text = "\n".join(retrieved_chunks)
+                distances, indices = index.search(question_embedding, k=5)
 
-            # Prepare conversation memory (last 5 messages)
-            recent_history = st.session_state.chat_history[-5:]
+                retrieved_chunks = [chunks[i] for i in indices[0]]
+                context_text = "\n".join(retrieved_chunks)
 
-            history_text = "\n".join(
-                [f"{msg['role']}: {msg['content']}" for msg in recent_history]
-            )
+                # Get last 5 messages as memory
+                recent_history = st.session_state.chat_history[-5:]
+                history_text = "\n".join(
+                    [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+                )
 
-            prompt = f"""
-You are an Enterprise Competency Analytics Copilot.
+                # Build prompt
+                prompt = user_prompt_template.format(
+                    context=context_text,
+                    question=user_question,
+                    history=history_text
+                )
 
-Conversation History:
-{history_text}
-
-Retrieved Data:
-{context_text}
-
-Current Question:
-{user_question}
-
-Rules:
-- Use retrieved data.
-- Use conversation history.
-- Compare numeric values carefully.
-- Do not guess.
-
-Provide structured answer.
-"""
-
-            with st.chat_message("assistant"):
-                with st.spinner("Analyzing..."):
+                try:
                     response = llm.invoke(prompt)
-                    st.markdown(response.content)
+                    assistant_reply = response.content
 
-            # Save assistant reply
-            st.session_state.chat_history.append(
-                {"role": "assistant", "content": response.content}
-            )
+                    with st.chat_message("assistant"):
+                        st.markdown(assistant_reply)
+
+                    # Save assistant reply
+                    st.session_state.chat_history.append(
+                        {"role": "assistant", "content": assistant_reply}
+                    )
+
+                except Exception as e:
+                    st.error("AI Request Failed")
+                    st.write(str(e))
+
 
 # =========================================================
 # 🧠 SMART SKILL RECOMMENDATION ENGINE
