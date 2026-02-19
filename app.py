@@ -143,12 +143,15 @@ elif menu == "👥 Team Competency Check":
             st.dataframe(grouped[[target_col, selected_emp]])
 
 # =========================================================
-# 🤖 ADVANCED RAG CHAT ASSISTANT
+# 🤖 ADVANCED RAG CHAT ASSISTANT (WITH MEMORY)
 # =========================================================
 
 elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
 
-    st.header("🤖 Advanced RAG AI Competency Assistant")
+    st.header("🤖 AI Competency Copilot")
+
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
 
     uploaded_file = st.file_uploader("Upload Team Competency Sheet for AI")
 
@@ -160,7 +163,7 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
         st.success("Team Data Loaded")
 
         # ===============================
-        # 1️⃣ Convert rows into chunks
+        # Create Vector Store
         # ===============================
 
         chunks = []
@@ -171,10 +174,6 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
             )
             chunks.append(row_text)
 
-        # ===============================
-        # 2️⃣ Create FAISS Index
-        # ===============================
-
         embeddings = embedding_model.encode(chunks)
         embeddings = np.array(embeddings).astype("float32")
 
@@ -182,74 +181,77 @@ elif menu == "🤖 AI Chat Assistant (Advanced RAG)":
         index = faiss.IndexFlatL2(dimension)
         index.add(embeddings)
 
-        st.info("Vector database created successfully.")
-
         # ===============================
-        # 3️⃣ Dynamic Prompt Editor
+        # Display Chat History
         # ===============================
 
-        st.subheader("🔧 Prompt Configuration")
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-        default_prompt_template = """
-You are an expert Competency Analytics AI.
+        # ===============================
+        # Chat Input
+        # ===============================
 
-IMPORTANT RULES:
-1. Use ONLY the retrieved data.
-2. Compare numeric values carefully.
-3. Identify highest or lowest clearly.
-4. Mention employee name and value.
-5. Do NOT guess.
-6. If skill not found, say clearly "Skill not found in data."
+        user_question = st.chat_input("Ask your question")
+
+        if user_question:
+
+            # Display user message
+            st.session_state.chat_history.append(
+                {"role": "user", "content": user_question}
+            )
+
+            with st.chat_message("user"):
+                st.markdown(user_question)
+
+            # Retrieve context from vector DB
+            question_embedding = embedding_model.encode([user_question])
+            question_embedding = np.array(question_embedding).astype("float32")
+
+            distances, indices = index.search(question_embedding, k=5)
+
+            retrieved_chunks = [chunks[i] for i in indices[0]]
+            context_text = "\n".join(retrieved_chunks)
+
+            # Prepare conversation memory (last 5 messages)
+            recent_history = st.session_state.chat_history[-5:]
+
+            history_text = "\n".join(
+                [f"{msg['role']}: {msg['content']}" for msg in recent_history]
+            )
+
+            prompt = f"""
+You are an Enterprise Competency Analytics Copilot.
+
+Conversation History:
+{history_text}
 
 Retrieved Data:
-{context}
+{context_text}
 
-User Question:
-{question}
+Current Question:
+{user_question}
 
-Provide response in format:
+Rules:
+- Use retrieved data.
+- Use conversation history.
+- Compare numeric values carefully.
+- Do not guess.
 
-Answer:
-Explanation:
+Provide structured answer.
 """
 
-        user_prompt_template = st.text_area(
-            "Edit AI Prompt Template:",
-            value=default_prompt_template,
-            height=300
-        )
-
-        # ===============================
-        # 4️⃣ Ask Question
-        # ===============================
-
-        user_question = st.text_input("Ask your question")
-
-        if st.button("Ask AI") and user_question:
-
-            with st.spinner("Retrieving relevant data..."):
-
-                question_embedding = embedding_model.encode([user_question])
-                question_embedding = np.array(question_embedding).astype("float32")
-
-                distances, indices = index.search(question_embedding, k=5)
-
-                retrieved_chunks = [chunks[i] for i in indices[0]]
-                context_text = "\n".join(retrieved_chunks)
-
-                prompt = user_prompt_template.format(
-                    context=context_text,
-                    question=user_question
-                )
-
-                try:
+            with st.chat_message("assistant"):
+                with st.spinner("Analyzing..."):
                     response = llm.invoke(prompt)
-                    st.success("AI Response:")
-                    st.write(response.content)
+                    st.markdown(response.content)
 
-                except Exception as e:
-                    st.error("AI Request Failed")
-                    st.write(str(e))
+            # Save assistant reply
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": response.content}
+            )
+
 # =========================================================
 # 🧠 SMART SKILL RECOMMENDATION ENGINE
 # =========================================================
